@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Matrimony Chatbot</title>
+  <style>
+    /* Your existing chatbot styles — same as before */
+    body {
+      font-family: sans-serif;
+      background: #f0f0f8;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+
+    .chat-container {
+      width: 400px;
+      height: 600px;
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .chat-header {
+      background: #7c4dff;
+      color: white;
+      padding: 16px;
+      text-align: center;
+      font-size: 1.2em;
+      border-radius: 10px 10px 0 0;
+    }
+
+    .chat-messages {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+    }
+
+    .chat-input-area {
+      display: flex;
+      padding: 12px;
+      border-top: 1px solid #ddd;
+    }
+
+    #chatInput {
+      flex: 1;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 20px;
+      outline: none;
+    }
+
+    #sendBtn {
+      margin-left: 8px;
+      padding: 8px 16px;
+      border: none;
+      background: #7c4dff;
+      color: white;
+      border-radius: 20px;
+      cursor: pointer;
+    }
+
+    .message {
+      margin-bottom: 10px;
+      padding: 10px 14px;
+      border-radius: 12px;
+      max-width: 80%;
+    }
+
+    .bot-message {
+      background: #e3d7ff;
+      align-self: flex-start;
+    }
+
+    .user-message {
+      background: #d1c4e9;
+      align-self: flex-end;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="chat-container">
+    <div class="chat-header">Matrimony Chatbot</div>
+    <div class="chat-messages" id="chatMessages"></div>
+    <form id="chatForm" class="chat-input-area">
+      <input type="text" id="chatInput" placeholder="Type your message..." autocomplete="off" />
+      <button type="submit" id="sendBtn">Send</button>
+    </form>
+  </div>
+
+  <script>
+    const chatMessages = document.getElementById('chatMessages');
+    const chatForm = document.getElementById('chatForm');
+    const chatInput = document.getElementById('chatInput');
+    const backendUrl = 'http://localhost:5000';
+    let state = 'init';
+    let userData = {};
+    let partnerPrefs = {};
+    let userId = localStorage.getItem('matrimonyUserId');
+    let chattingWithUserId = null;
+
+    function addMessage(text, sender = 'bot') {
+      const msg = document.createElement('div');
+      msg.classList.add('message', sender === 'bot' ? 'bot-message' : 'user-message');
+      msg.innerHTML = text;
+      chatMessages.appendChild(msg);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    async function startChat() {
+      if (!userId) {
+        state = 'waiting_name';
+        addMessage("👋 Hey there! I'm your friendly matrimony assistant. What’s your name?");
+        return;
+      }
+      try {
+        const res = await fetch(`${backendUrl}/get-profile/${userId}`);
+        const data = await res.json();
+        if (data && data.found) {
+          userData = data.user;
+          partnerPrefs = data.partnerPreferences || {};
+          const greeting = userData.gender?.toLowerCase() === 'female' ? "👰 Hello Ma’am!" : "🤵 Hello Sir!";
+          addMessage(`${greeting} Welcome back, <b>${userData.name}</b>! I'm here to help you anytime 💬`);
+          addMessage("✨ You can say things like:<br>- 💘 Find matches<br>- ✏️ Update my details<br>- 🗑️ Delete my profile<br>- 💡 Give me a tip");
+          state = 'profile_loaded';
+        } else {
+          state = 'waiting_name';
+          addMessage("👋 Hey there! What's your name?");
+        }
+      } catch {
+        addMessage("❌ Oops! Couldn't connect to the server. Try again later.");
+      }
+    }
+
+    chatForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = chatInput.value.trim();
+      if (!input) return;
+      addMessage(input, 'user');
+      chatInput.value = '';
+
+      if (chattingWithUserId) {
+        // Chatting with a match
+        await fetch(`${backendUrl}/send-message`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ from: userId, to: chattingWithUserId, message: input }),
+        });
+        return;
+      }
+      fetch('/find-matches', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: 'your-user-id-here' })
+      }).then(res => res.json()).then(data => {
+        console.log("🎯 Matches:", data);
+      });
+
+      const lowerText = input.toLowerCase();
+      // Always handle friendly greetings!
+      if (/^(hi+|hello+|hey+|hii+|heyy+|yo+|hlo+|hai+)[!.\s]*$/i.test(lowerText)) {
+        const greeting = userData.gender === 'female' ? "👰 Hey Ma’am!" : "🤵 Hey Sir!";
+        addMessage(`${greeting} So glad to chat with you again, <b>${userData.name || ''}</b>!`);
+        addMessage("💬 You can try:<br>- 💘 Find matches<br>- 🧹 Delete my profile<br>- ✏️ Update my details<br>- 💡 Give me a tip");
+        return;
+      }
+
+      // User profile flow
+      if (state === 'waiting_name') {
+        userData.name = input;
+        state = 'waiting_age';
+        addMessage(`Nice to meet you, <b>${userData.name}</b>! 🎉 How old are you?`);
+      } else if (state === 'waiting_age') {
+        const age = parseInt(input);
+        if (isNaN(age) || age < 18) return addMessage("🙈 Please enter a valid age above 18.");
+        userData.age = age;
+        state = 'waiting_gender';
+        addMessage("What’s your gender? (Type: <b>male</b> or <b>female</b>)");
+      } else if (state === 'waiting_gender') {
+        const gender = input.toLowerCase();
+        if (!['male', 'female'].includes(gender)) return addMessage("Type only <b>male</b> or <b>female</b> 🙏");
+        userData.gender = gender;
+        state = 'waiting_religion';
+        addMessage("What religion do you follow?");
+      } else if (state === 'waiting_religion') {
+        userData.religion = input;
+        state = 'waiting_education';
+        addMessage("🎓 What is your education level?");
+      } else if (state === 'waiting_education') {
+        userData.education = input;
+        state = 'waiting_occupation';
+        addMessage("💼 What is your occupation?");
+      } else if (state === 'waiting_occupation') {
+        userData.occupation = input;
+        state = 'waiting_location';
+        addMessage("📍 Where do you live?");
+      } else if (state === 'waiting_name') {
+        userData.name = input;
+        state = 'waiting_dob';
+        addMessage(`Nice to meet you, <b>${userData.name}</b>! 🎉 What is your Date of Birth? (e.g., DD-MM-YYYY)`);
+      } else if (state === 'waiting_dob') {
+        userData.dob = input;
+        state = 'waiting_timeofbirth';
+        addMessage("⏰ What is your Time of Birth? (e.g., 10:30 AM)");
+      } else if (state === 'waiting_timeofbirth') {
+        userData.timeOfBirth = input;
+        state = 'waiting_placeofbirth';
+        addMessage("📍 What is your Place of Birth?");
+      } else if (state === 'waiting_placeofbirth') {
+        userData.placeOfBirth = input;
+        state = 'waiting_height';
+        addMessage("📏 What is your Height? (e.g., 5'4\")");
+      } else if (state === 'waiting_height') {
+        userData.height = input;
+        state = 'waiting_complexion';
+        addMessage("🎨 What is your Complexion? (e.g., Fair, Wheatish, Dusky)");
+      } else if (state === 'waiting_complexion') {
+        userData.complexion = input;
+        state = 'waiting_family';
+        addMessage("👨‍👩‍👧‍👦 Tell me about your family. (e.g., Father: name, occupation; Mother: name, occupation; Siblings: ...)");
+      } else if (state === 'waiting_family') {
+        userData.family = input;
+        state = 'waiting_education';
+        addMessage("🎓 What are your educational qualifications?");
+      } else if (state === 'waiting_education') {
+        userData.education = input;
+        state = 'waiting_occupation';
+        addMessage("💼 What is your current job title or profession?");
+      } else if (state === 'waiting_occupation') {
+        userData.occupation = input;
+        state = 'waiting_lifestyle';
+        addMessage("💃 Tell me about your lifestyle or hobbies. (e.g., Dancing, Yoga, Reading, etc.)");
+      } else if (state === 'waiting_lifestyle') {
+        userData.hobbies = input;
+        state = 'waiting_diet';
+        addMessage("🍽️ What is your diet preference? (e.g., Vegetarian, Non-Vegetarian, Any)");
+      } else if (state === 'waiting_diet') {
+        userData.diet = input;
+        state = 'waiting_address';
+        addMessage("🏠 What is your address?");
+      } else if (state === 'waiting_address') {
+        userData.address = input;
+        state = 'waiting_phone';
+        addMessage("📞 What is your contact phone number?");
+      } else if (state === 'waiting_phone') {
+        userData.phone = input;
+        state = 'waiting_horoscope';
+        addMessage("🪔 Do you want to add horoscope details like Rashi/Nakshatra/Gotra? If yes, type them or say 'Skip'");
+      } else if (state === 'waiting_horoscope') {
+        if (input.toLowerCase() !== 'skip') userData.horoscope = input;
+        addMessage("⏳ Saving your complete profile...");
+        // Save user profile
+        const res = await fetch(`${backendUrl}/add-profile`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(userData)
+        });
+        const result = await res.json();
+        if (result.userId) {
+          userId = result.userId;
+          localStorage.setItem('matrimonyUserId', userId);
+          addMessage("✅ Your full profile is saved! Now let’s set your partner preferences.");
+          state = 'waiting_partner_age';
+          addMessage("❤️ What age range are you looking for in a partner? (e.g., <b>25-30</b>)");
+        } else {
+          addMessage("❌ Something went wrong while saving. Please try again.");
+        }
+      } else if (state === 'waiting_location') {
+        userData.location = input;
+        state = 'waiting_diet';
+        addMessage("🍽️ What is your diet preference? (e.g., Vegetarian, Non-Vegetarian, Any)");
+      } else if (state === 'waiting_diet') {
+        userData.diet = input;
+        addMessage("⏳ Saving your profile...");
+        // Save user profile
+        const res = await fetch(`${backendUrl}/add-profile`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(userData)
+        });
+        const result = await res.json();
+        if (result.userId) {
+          userId = result.userId;
+          localStorage.setItem('matrimonyUserId', userId);
+          addMessage("✅ Your profile is saved! Now let's set your partner preferences.");
+          state = 'waiting_partner_age';
+          addMessage("❤️ What age range are you looking for in a partner? (e.g., <b>25-30</b>)");
+        } else {
+          addMessage("❌ Something went wrong while saving. Please try again.");
+        }
+      }
+      // Partner preference flow
+      else if (state === 'waiting_partner_age') {
+        const match = input.match(/^(\d+)-(\d+)$/);
+        if (!match) return addMessage("Please use format like <b>25-30</b> 🙃");
+        partnerPrefs.ageMin = parseInt(match[1]);
+        partnerPrefs.ageMax = parseInt(match[2]);
+        state = 'waiting_partner_religion';
+        addMessage("Preferred religion for your partner? (or type <b>Any</b>)");
+      } else if (state === 'waiting_partner_religion') {
+        partnerPrefs.religion = input;
+        state = 'waiting_partner_education';
+        addMessage("Preferred education level for your partner? (e.g., B.Tech, MBA, Any)");
+      } else if (state === 'waiting_partner_education') {
+        partnerPrefs.education = input;
+        state = 'waiting_partner_occupation';
+        addMessage("Preferred occupation for your partner? (e.g., Engineer, Doctor, Any)");
+      } else if (state === 'waiting_partner_occupation') {
+        partnerPrefs.occupation = input;
+        state = 'waiting_partner_location';
+        addMessage("Preferred location for your partner? (e.g., Chennai, Abroad, Any)");
+      } else if (state === 'waiting_partner_location') {
+        partnerPrefs.location = input;
+        state = 'waiting_partner_diet';
+        addMessage("Diet preference for your partner? (e.g., Vegetarian, Non-Vegetarian, Any)");
+      } else if (state === 'waiting_dob') {
+        userData.dob = input;
+
+        const dateParts = input.split("-");
+        if (dateParts.length !== 3) return addMessage("❗ Please enter DOB in DD-MM-YYYY format.");
+        const day = parseInt(dateParts[0]);
+        const month = parseInt(dateParts[1]);
+
+        if (isNaN(day) || isNaN(month)) return addMessage("❗ Invalid date format. Try DD-MM-YYYY.");
+
+        userData.zodiac = getZodiacSign(day, month);
+        addMessage(`🔮 Your Zodiac sign is <b>${userData.zodiac}</b>`);
+
+        state = 'waiting_timeofbirth';
+        addMessage("⏰ What is your Time of Birth? (e.g., 10:30 AM)");
+      }
+      else if (state === 'waiting_partner_diet') {
+        partnerPrefs.diet = input;
+        addMessage("⏳ Saving your partner preferences...");
+        // Save partner preferences
+        const res = await fetch(`${backendUrl}/add-partner-preferences`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, ...partnerPrefs })
+        });
+        const result = await res.json();
+        if (result.success) {
+          addMessage("✅ Your partner preferences are saved! 💖");
+          addMessage("✨ You can now say:<br>- 💘 Find matches<br>- ✏️ Update my details<br>- 🧹 Delete my profile<br>- 💡 Give me a tip");
+          state = 'profile_loaded';
+        } else {
+          addMessage("❌ Something went wrong while saving. Please try again.");
+        }
+      }
+
+      // Main commands
+      else if (state === 'profile_loaded') {
+        if (lowerText.includes("match")) {
+          addMessage("🔍 Searching for the perfect matches for you...");
+          const matchRes = await fetch(`${backendUrl}/find-matches`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId,
+              ageRange: { min: partnerPrefs.ageMin, max: partnerPrefs.ageMax },
+              religion: partnerPrefs.religion,
+              education: partnerPrefs.education,
+              occupation: partnerPrefs.occupation,
+              location: partnerPrefs.location,
+              diet: partnerPrefs.diet
+            })
+          });
+          const matches = await matchRes.json();
+          if (matches.length > 0) {
+            addMessage(`🎯 Found ${matches.length} match(es)! Here are the top ones:`);
+            matches.slice(0, 3).forEach(match => {
+              addMessage(`<b>${match.name}</b><br>Age: ${match.age}<br>Religion: ${match.religion}<br>Location: ${match.location || 'N/A'}<br><button onclick="startChatWith('${match.userId}', '${match.name}')">Chat with ${match.name}</button>`, "bot");
+            });
+          } else {
+            addMessage("😢 No perfect matches found right now. Let’s try adjusting preferences later!");
+          }
+        } else if (lowerText.includes("delete")) {
+          const confirmDelete = confirm("Are you sure you want to delete your profile?");
+          if (confirmDelete) {
+            await fetch(`${backendUrl}/delete-profile/${userId}`, { method: 'DELETE' });
+            localStorage.removeItem('matrimonyUserId');
+            userId = null;
+            userData = {};
+            partnerPrefs = {};
+            state = 'waiting_name';
+            addMessage("🧹 Profile deleted. Let’s start fresh! What’s your name?");
+          } else {
+            addMessage("Phew! Your profile is safe with me 😌");
+          }
+        } else if (lowerText.includes("update")) {
+          addMessage("Let's update your info 📝 What’s your new name?");
+          state = 'waiting_name';
+        } else if (lowerText.includes("tip")) {
+          const tips = [
+            "🌹 Tip: Respect your partner’s opinions even when you disagree.",
+            "🗣️ Tip: Communication builds stronger bonds. Speak and listen with care.",
+            "🎁 Tip: Small gestures of love matter more than big ones done rarely.",
+            "🔐 Tip: Trust takes time to build, but seconds to break — be honest.",
+            "🌱 Tip: Grow together, not apart. Support each other's dreams.",
+            "🚫 Tip: Never compare your relationship with others — it’s your own journey.",
+            "😂 Tip: Laugh together often — joy keeps love alive.",
+            "🙏 Tip: Learn to say sorry when needed. Ego ruins what love builds."
+          ];
+          const randomTip = tips[Math.floor(Math.random() * tips.length)];
+          addMessage(randomTip);
+        } else {
+          addMessage("🤔 I didn’t get that. Try saying:<br>- 💘 Find matches<br>- ✏️ Update my details<br>- 🧹 Delete my profile");
+        }
+      }
+    });
+
+    // Chat with match
+    window.startChatWith = async function (toUserId, name) {
+      chattingWithUserId = toUserId;
+      addMessage(`💬 Starting chat with <b>${name}</b>`, "bot");
+      // Fetch previous messages
+      const res = await fetch(`${backendUrl}/get-messages/${userId}/${toUserId}`);
+      const messages = await res.json();
+      messages.forEach(msg => {
+        addMessage((msg.from === userId ? "You: " : "Them: ") + msg.message, msg.from === userId ? "user" : "bot");
+      });
+      addMessage(`Type your message below to chat with <b>${name}</b>.`, "bot");
+    };
+
+    startChat();
+    function getZodiacSign(day, month) {
+      const zodiac = [
+        { sign: "Capricorn", from: [12, 22], to: [1, 19] },
+        { sign: "Aquarius", from: [1, 20], to: [2, 18] },
+        { sign: "Pisces", from: [2, 19], to: [3, 20] },
+        { sign: "Aries", from: [3, 21], to: [4, 19] },
+        { sign: "Taurus", from: [4, 20], to: [5, 20] },
+        { sign: "Gemini", from: [5, 21], to: [6, 20] },
+        { sign: "Cancer", from: [6, 21], to: [7, 22] },
+        { sign: "Leo", from: [7, 23], to: [8, 22] },
+        { sign: "Virgo", from: [8, 23], to: [9, 22] },
+        { sign: "Libra", from: [9, 23], to: [10, 22] },
+        { sign: "Scorpio", from: [10, 23], to: [11, 21] },
+        { sign: "Sagittarius", from: [11, 22], to: [12, 21] },
+        { sign: "Capricorn", from: [12, 22], to: [12, 31] }
+      ];
+
+      for (const z of zodiac) {
+        const [fromMonth, fromDay] = z.from;
+        const [toMonth, toDay] = z.to;
+        if (
+          (month === fromMonth && day >= fromDay) ||
+          (month === toMonth && day <= toDay)
+        ) {
+          return z.sign;
+        }
+      }
+      return "Unknown";
+    }
+
+  </script>
+
+</body>
+
+</html>
